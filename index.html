@@ -646,6 +646,7 @@
         let simulationAnswered = 0;
         let currentErrorId = null;
         let isSubmitted = false;
+        let currentOptionMap = {}; // 存储当前题目的选项内容映射（用于键盘快捷键和答案判断）
 
         window.onload = function() {
             if (window.allQuestions && window.allQuestions.length > 0) {
@@ -846,6 +847,7 @@
 
             isSubmitted = false;
             selectedOptions = [];
+            currentOptionMap = {}; // 重置选项映射
             simulationQuestions = [];
             simulationAnswered = 0;
             currentErrorId = null;
@@ -859,6 +861,7 @@
             updateProgressBar();
         }
 
+        // 核心修改点：修正选项映射逻辑，确保答案判断正确
         function showQuestion(index) {
             if (!currentMode) return;
             
@@ -871,6 +874,7 @@
             optionsEl.innerHTML = '';
             feedbackEl.style.display = 'none';
             selectedOptions = [];
+            currentOptionMap = {}; // 重置选项映射
             isSubmitted = false;
 
             const currentQ = questions[index];
@@ -881,15 +885,31 @@
 
             questionEl.textContent = `${currentQ.id}：${currentQ.question}`;
 
-            Object.entries(currentQ.options).forEach(([key, value], idx) => {
+            // --- 修正后的逻辑 ---
+            // 1. 获取原始选项的键值对数组
+            let originalOptions = Object.entries(currentQ.options);
+            
+            // 2. 对键值对数组进行随机排序
+            originalOptions.sort(() => Math.random() - 0.5);
+
+            // 3. 定义固定的显示标签顺序
+            const fixedLabels = ['A', 'B', 'C', 'D'];
+
+            // 4. 遍历排序后的原始选项，并用固定标签显示
+            originalOptions.forEach(([originalKey, content], idx) => {
+                const displayLabel = fixedLabels[idx];
+                // 建立映射：显示的标签 -> 原始的选项键
+                currentOptionMap[displayLabel] = originalKey;
+                
                 const optionItem = document.createElement("div");
                 optionItem.className = "option-item";
                 optionItem.innerHTML = `
-                    <input type="checkbox" id="opt-${key}" value="${key}" data-index="${idx + 1}">
-                    <label for="opt-${key}"><span class="option-key">${key}.</span> ${value}</label>
+                    <input type="checkbox" id="opt-${displayLabel}" value="${displayLabel}" data-index="${idx + 1}">
+                    <label for="opt-${displayLabel}"><span class="option-key">${displayLabel}.</span> ${content}</label>
                 `;
                 optionsEl.appendChild(optionItem);
             });
+            // --- 修正结束 ---
 
             document.querySelectorAll('.option-item input').forEach(input => {
                 input.disabled = isSubmitted;
@@ -903,7 +923,7 @@
                 (currentMode === "sequence" && index === 0) || 
                 (currentMode === "simulation" && index === 0) ||
                 (currentMode === "error" && errorQuestions.length <= 1) ||
-                (currentMode === "random"); // 随机模式下，上一题按钮通常禁用
+                (currentMode === "random");
 
             updateProgressBar();
         }
@@ -912,29 +932,21 @@
             return questions[currentQuestionIndex];
         }
         
-        // 核心修改点：更新随机题目索引获取逻辑
         function getRandomIndex() {
-            // 筛选出所有未回答的题目ID
             const unansweredQuestionIds = questions
                 .map(q => q.id)
                 .filter(id => !completedQuestions.includes(id));
 
-            // 检查是否所有题目都已完成
             if (unansweredQuestionIds.length === 0) {
-                // 所有题目均已完成，刷新状态
                 alert('恭喜！你已完成题库中所有题目，现在将重置进度，重新开始。');
-                completedQuestions = []; // 清空已做题列表
-                saveProgress(); // 保存重置后的状态
-                updateStats();   // 更新UI统计
-                updateProgressBar(); // 更新进度条
-                // 返回一个全新的随机索引（从所有题目中）
+                completedQuestions = [];
+                saveProgress();
+                updateStats();
+                updateProgressBar();
                 return Math.floor(Math.random() * questions.length);
             }
             
-            // 从未做题中随机选择一个ID
             const randomId = unansweredQuestionIds[Math.floor(Math.random() * unansweredQuestionIds.length)];
-            
-            // 根据ID找到对应的索引并返回
             return questions.findIndex(q => q.id === randomId);
         }
         
@@ -956,7 +968,6 @@
             if (isCorrect) {
                 feedbackEl.className = 'feedback correct';
                 feedbackEl.innerHTML = `<strong><i class="fas fa-check-circle"></i> 回答正确！</strong> 正确答案：${formatAnswer(currentQ.answer)}`;
-                // 只有答对的题目才加入已做题列表
                 if (!completedQuestions.includes(currentQ.id)) {
                     completedQuestions.push(currentQ.id);
                 }
@@ -995,7 +1006,10 @@
         
         function handleNext() {
             if (currentMode === "simulation" && simulationAnswered === simulationQuestions.length) {
-                const score = simulationQuestions.filter(q => completedQuestions.includes(q.id) && !errorQuestions.includes(q.id)).length;
+                const score = simulationQuestions.filter(q => {
+                    // 修正计分逻辑，确保只计算在模拟中答对的题目
+                    return completedQuestions.includes(q.id) && !errorQuestions.includes(q.id);
+                }).length;
                 alert(`模拟测试完成！\n总分：${score}/${simulationQuestions.length}\n正确率：${Math.round((score/simulationQuestions.length)*100)}%`);
                 switchMode('');
                 document.getElementById('emptyState').style.display = 'block';
@@ -1004,14 +1018,10 @@
             }
 
             if (currentMode === 'random') {
-                currentQuestionIndex = getRandomIndex(); // 使用更新后的getRandomIndex
+                currentQuestionIndex = getRandomIndex();
             } else if (currentMode === 'sequence') {
-                // 顺序模式下，如果当前是最后一题，则提示完成
                 if (currentQuestionIndex >= questions.length - 1) {
                      alert('恭喜！你已按顺序完成所有题目。');
-                     // 可以选择在这里重置，或者让用户手动切换模式
-                     // completedQuestions = []; 
-                     // saveProgress();
                      switchMode('');
                      document.getElementById('emptyState').style.display = 'block';
                      document.getElementById('questionContainer').style.display = 'none';
@@ -1030,19 +1040,28 @@
             showQuestion(currentQuestionIndex);
         }
 
+        // 答案判断逻辑（此部分逻辑正确，但依赖于正确的 currentOptionMap）
         function checkAnswer(question) {
-            const userAnswer = selectedOptions.sort().join("");
+            // 将用户选择的标签（A/B/C/D）转换为原始选项键
+            const userAnswer = selectedOptions
+                .map(label => currentOptionMap[label])
+                .sort()
+                .join("");
             const isCorrect = userAnswer === question.answer;
 
             if (currentMode === 'error' && isCorrect) {
                 removeFromErrorBook(question.id);
             }
-            // 注意：已做题的逻辑移至handleSubmit，确保只有答对才计入
             return isCorrect;
         }
         
+        // 格式化答案显示（此部分逻辑正确，但依赖于正确的 currentOptionMap）
         function formatAnswer(answerStr) {
-            return answerStr.split('').join(', ');
+            // 将原始答案键转换为当前显示的标签（A/B/C/D）
+            const reverseMap = Object.fromEntries(
+                Object.entries(currentOptionMap).map(([label, key]) => [key, label])
+            );
+            return answerStr.split('').map(key => reverseMap[key]).join(', ');
         }
 
         function bindEvents() {
@@ -1058,7 +1077,6 @@
                     if (mode === 'simulation') {
                         initSimulation();
                     } else {
-                        // 切换到随机模式时，立即获取一个未做过的题目
                         currentQuestionIndex = mode === 'random' ? getRandomIndex() : 0;
                         showQuestion(currentQuestionIndex);
                     }
@@ -1110,7 +1128,6 @@
             });
 
             document.getElementById('prevBtn').addEventListener('click', function() {
-                // 随机模式下通常不需要上一题功能，如果需要，可以自行实现
                 if (currentMode === 'sequence') {
                     currentQuestionIndex = (currentQuestionIndex - 1 + questions.length) % questions.length;
                 } else if (currentMode === 'simulation') {
@@ -1156,8 +1173,8 @@
                 if (['1', '2', '3', '4'].includes(key) && !isSubmitted) {
                     e.preventDefault();
                     const optionIndex = parseInt(key) - 1;
-                    const optionKeys = Object.keys(currentQ.options);
-                    const targetKey = optionKeys[optionIndex];
+                    const fixedLabels = ['A', 'B', 'C', 'D'];
+                    const targetKey = fixedLabels[optionIndex];
 
                     if (targetKey) {
                         const targetInput = document.querySelector(`#opt-${targetKey}`);
